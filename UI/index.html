@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VisionTrack – Vehicle Detection</title>
+<style>
+  :root {
+    --bg:        #0d0f14;
+    --surface:   #161a24;
+    --surface2:  #1e2435;
+    --border:    #2a3050;
+    --accent:    #00c8ff;
+    --accent2:   #7b61ff;
+    --success:   #00e5a0;
+    --warn:      #ffb300;
+    --danger:    #ff4d6d;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --radius:    12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 28px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
+  header h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: .5px; }
+  header span { font-size: .8rem; color: var(--muted); margin-left: 6px; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); margin-left: auto; transition: background .3s;
+  }
+  .status-dot.live { background: var(--success); animation: pulse 1.6s infinite; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0,229,160,.5); }
+    70%  { box-shadow: 0 0 0 8px rgba(0,229,160,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,229,160,0); }
+  }
+  #statusLabel { font-size: .78rem; color: var(--muted); margin-left: 6px; }
+  main {
+    flex: 1; display: grid; grid-template-columns: 1fr 280px; overflow: hidden;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } .sidebar { display: none; } }
+  .left-panel { display: flex; flex-direction: column; padding: 20px; gap: 16px; overflow-y: auto; }
+  .tabs {
+    display: flex; gap: 4px; background: var(--surface);
+    padding: 4px; border-radius: var(--radius); border: 1px solid var(--border);
+  }
+  .tab-btn {
+    flex: 1; padding: 9px 4px; border: none; cursor: pointer;
+    background: transparent; color: var(--muted);
+    border-radius: 8px; font-size: .82rem; font-weight: 600;
+    transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .tab-btn.active { background: var(--accent2); color: #fff; }
+  .tab-btn:hover:not(.active) { background: var(--surface2); color: var(--text); }
+  .controls-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .ctrl-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ctrl-row label { font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); height: 4px; cursor: pointer; }
+  input[type="text"] {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px; border-radius: 8px;
+    font-size: .85rem; outline: none; transition: border-color .2s;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  .dropzone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 28px; text-align: center; cursor: pointer;
+    transition: all .25s; color: var(--muted); font-size: .88rem;
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent); background: rgba(0,200,255,.05); color: var(--accent);
+  }
+  .dropzone .icon { font-size: 2rem; margin-bottom: 8px; }
+  .btn {
+    padding: 10px 20px; border: none; border-radius: 8px;
+    font-weight: 700; font-size: .85rem; cursor: pointer;
+    transition: all .2s; display: inline-flex; align-items: center; gap: 7px;
+  }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+  .btn-primary:hover { opacity: .88; transform: translateY(-1px); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { opacity: .88; }
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); padding: 5px 10px; font-size: .75rem; font-weight: 600;
+  }
+  .btn-ghost:hover { border-color: var(--warn); color: var(--warn); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .feed-wrap {
+    position: relative; background: #000; border-radius: var(--radius);
+    overflow: hidden; border: 1px solid var(--border); aspect-ratio: 16/9;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #feedCanvas { width: 100%; height: 100%; object-fit: contain; display: none; }
+  #feedCanvas.active { display: block; }
+  #feedMsg {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; color: var(--muted); font-size: .9rem; background: rgba(0,0,0,.6);
+  }
+  #feedMsg .big { font-size: 2.5rem; }
+  #feedMsg.hidden { display: none; }
+  .fps-badge {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(0,0,0,.65); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 9px;
+    font-size: .78rem; font-weight: 700; color: var(--success); display: none;
+  }
+  .fps-badge.show { display: block; }
+  .hint-badge {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.72); border: 1px solid var(--border);
+    border-radius: 20px; padding: 5px 14px;
+    font-size: .75rem; color: var(--muted); white-space: nowrap;
+    pointer-events: none; transition: opacity .5s;
+  }
+  .hint-badge.hidden { opacity: 0; }
+  .sidebar {
+    border-left: 1px solid var(--border); background: var(--surface);
+    padding: 20px 16px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto;
+  }
+  .sidebar h3 { font-size: .78rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+  .sel-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; margin-top: 10px; transition: border-color .2s;
+  }
+  .sel-card.active { border-color: var(--warn); }
+  .sel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .sel-badge {
+    font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    padding: 3px 9px; border-radius: 5px;
+    background: rgba(255,179,0,.15); color: var(--warn);
+  }
+  .sel-row { display: flex; justify-content: space-between; font-size: .82rem; padding: 4px 0; }
+  .sel-row .lbl { color: var(--muted); }
+  .sel-row .val { font-weight: 700; }
+  .count-list { display: flex; flex-direction: column; gap: 8px; }
+  .count-item { display: flex; align-items: center; gap: 8px; font-size: .84rem; }
+  .count-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .count-bar-wrap { flex: 1; height: 4px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .count-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
+  .count-num { font-weight: 700; min-width: 20px; text-align: right; }
+  .det-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 200px; }
+  .det-entry {
+    background: var(--bg); border-radius: 8px; padding: 8px 10px;
+    font-size: .78rem; border-left: 3px solid var(--accent2);
+    animation: slideIn .2s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform: translateX(8px); } to { opacity:1; transform: translateX(0); } }
+  #confVal { font-weight: 700; color: var(--accent); min-width: 32px; }
+  .tab-panel { display: none; flex-direction: column; gap: 14px; }
+  .tab-panel.active { display: flex; }
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🚗</div>
+  <h1>VisionTrack <span>Vehicle Detection</span></h1>
+  <div class="status-dot" id="statusDot"></div>
+  <span id="statusLabel">Idle</span>
+</header>
+
+<main>
+  <div class="left-panel">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="webcam">📷 Webcam</button>
+      <button class="tab-btn" data-tab="video">🎬 Video</button>
+      <button class="tab-btn" data-tab="image">🖼 Image</button>
+      <button class="tab-btn" data-tab="rtsp">📡 RTSP</button>
+    </div>
+
+    <div class="controls-card">
+      <div class="ctrl-row">
+        <label>Confidence</label>
+        <input type="range" id="confSlider" min="10" max="95" value="45" step="5" />
+        <span id="confVal">45%</span>
+      </div>
+      <div class="tab-panel active" id="panel-webcam">
+        <div class="ctrl-row">
+          <button class="btn btn-primary" id="btnWebcam">▶ Start Webcam</button>
+          <button class="btn btn-danger" id="btnStopWebcam" disabled>■ Stop</button>
+        </div>
+      </div>
+      <div class="tab-panel" id="panel-video">
+        <div class="dropzone" id="videoDrop">
+          <div class="icon">🎬</div>
+          <div>Drop a video file here or <strong>click to browse</strong></div>
+          <div style="font-size:.75rem;margin-top:4px">MP4, AVI, MOV, MKV — up to 500 MB</div>
+          <input type="file" id="videoInput" accept="video/*" />
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" id="btnVideo" disabled>▶ Run Detection</button>
+          <button class="btn btn-danger" id="btnStopVideo" disabled>■ Stop</button>
+        </div>
+      </div>
+      <div class="tab-panel" id="panel-image">
+        <div class="dropzone" id="imageDrop">
+          <div class="icon">🖼</div>
+          <div>Drop an image or <strong>click to browse</strong></div>
+          <div style="font-size:.75rem;margin-top:4px">JPG, PNG, BMP, WebP</div>
+          <input type="file" id="imageInput" accept="image/*" />
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" id="btnImage" disabled>🔍 Detect</button>
+        </div>
+      </div>
+      <div class="tab-panel" id="panel-rtsp">
+        <div class="ctrl-row">
+          <label>Stream URL</label>
+          <input type="text" id="rtspUrl" placeholder="rtsp://user:pass@host:554/stream" />
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" id="btnRtsp">▶ Connect</button>
+          <button class="btn btn-danger" id="btnStopRtsp" disabled>■ Disconnect</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="feed-wrap">
+      <canvas id="feedCanvas"></canvas>
+      <div id="feedMsg">
+        <div class="big">🚗</div>
+        <div>Select a source above and start detection</div>
+      </div>
+      <div class="fps-badge" id="fpsBadge">-- FPS</div>
+      <div class="hint-badge" id="hintBadge">🖱 Click any vehicle to select &amp; track it</div>
+    </div>
+  </div>
+
+  <aside class="sidebar">
+    <div>
+      <h3>Selected Vehicle</h3>
+      <div class="sel-card" id="selCard">
+        <div id="selEmpty" style="font-size:.8rem;color:var(--muted);text-align:center;padding:6px 0">
+          Click a vehicle in the feed to select it
+        </div>
+        <div id="selContent" style="display:none">
+          <div class="sel-header">
+            <span class="sel-badge" id="selClass">—</span>
+            <button class="btn btn-ghost" id="btnClearSel">✕ Clear</button>
+          </div>
+          <div class="sel-row"><span class="lbl">Confidence</span><span class="val" id="selConf">—</span></div>
+          <div class="sel-row"><span class="lbl">Position (x, y)</span><span class="val" id="selPos">—</span></div>
+          <div class="sel-row"><span class="lbl">Size (w × h)</span><span class="val" id="selSize">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3>Vehicle Counts</h3>
+      <div class="count-list" id="countList" style="margin-top:10px">
+        <div style="font-size:.8rem;color:var(--muted)">No detections yet</div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;gap:8px;overflow:hidden">
+      <h3>Detection Log</h3>
+      <div class="det-log" id="detLog">
+        <div style="font-size:.8rem;color:var(--muted)">Waiting for detections...</div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+const API     = window.location.origin;
+const WS_BASE = API.replace(/^http/, 'ws');
+const CLASS_COLORS = ['#00c8ff','#7b61ff','#00e5a0','#ffb300','#ff4d6d','#ff8c00','#a8ff3e','#ff61d8'];
+
+// ── State ──────────────────────────────────────────────────────────────────
+let ws = null, mediaStream = null, capturing = false, currentFile = null;
+let frameCount = 0, allCounts = {}, classColorMap = {}, colorIdx = 0;
+let lastImage = null, latestDetections = [];
+let hoveredIdx = -1, selectedIdx = -1;
+let selectedClass = null, selectedCenter = null;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const feedCanvas = document.getElementById('feedCanvas');
+const fCtx       = feedCanvas.getContext('2d');
+const feedMsg    = document.getElementById('feedMsg');
+const fpsBadge   = document.getElementById('fpsBadge');
+const hintBadge  = document.getElementById('hintBadge');
+const statusDot  = document.getElementById('statusDot');
+const statusLabel= document.getElementById('statusLabel');
+const confSlider = document.getElementById('confSlider');
+const confVal    = document.getElementById('confVal');
+const countList  = document.getElementById('countList');
+const detLog     = document.getElementById('detLog');
+const selCard    = document.getElementById('selCard');
+const selEmpty   = document.getElementById('selEmpty');
+const selContent = document.getElementById('selContent');
+const selClass   = document.getElementById('selClass');
+const selConf    = document.getElementById('selConf');
+const selPos     = document.getElementById('selPos');
+const selSize    = document.getElementById('selSize');
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    stopAll();
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+confSlider.addEventListener('input', () => { confVal.textContent = confSlider.value + '%'; });
+
+// ── Canvas interaction ─────────────────────────────────────────────────────
+function toCanvasPt(e) {
+  const r  = feedCanvas.getBoundingClientRect();
+  const sx = feedCanvas.width  / r.width;
+  const sy = feedCanvas.height / r.height;
+  return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
+}
+
+function hitTest(pt) {
+  for (let i = latestDetections.length - 1; i >= 0; i--) {
+    const [x1, y1, x2, y2] = latestDetections[i].bbox;
+    if (pt.x >= x1 && pt.x <= x2 && pt.y >= y1 && pt.y <= y2) return i;
+  }
+  return -1;
+}
+
+feedCanvas.addEventListener('mousemove', e => {
+  const idx = hitTest(toCanvasPt(e));
+  if (idx !== hoveredIdx) {
+    hoveredIdx = idx;
+    feedCanvas.style.cursor = idx >= 0 ? 'crosshair' : 'default';
+    redraw();
+  }
+});
+feedCanvas.addEventListener('mouseleave', () => {
+  hoveredIdx = -1; feedCanvas.style.cursor = 'default'; redraw();
+});
+feedCanvas.addEventListener('click', e => {
+  const idx = hitTest(toCanvasPt(e));
+  if (idx >= 0) {
+    selectedIdx   = idx;
+    const d       = latestDetections[idx];
+    selectedClass  = d.class;
+    selectedCenter = bboxCenter(d.bbox);
+    hintBadge.classList.add('hidden');
+    redraw(); updateSelPanel();
+  } else {
+    clearSel();
+  }
+});
+document.getElementById('btnClearSel').addEventListener('click', clearSel);
+
+function bboxCenter(b) { return { x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2 }; }
+
+function clearSel() {
+  selectedIdx = -1; selectedClass = null; selectedCenter = null;
+  selCard.classList.remove('active');
+  selEmpty.style.display = ''; selContent.style.display = 'none';
+  redraw();
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+function getColor(cls) {
+  if (!classColorMap[cls]) classColorMap[cls] = CLASS_COLORS[colorIdx++ % CLASS_COLORS.length];
+  return classColorMap[cls];
+}
+
+function renderFrame(base64, detections) {
+  const img = new Image();
+  img.onload = () => {
+    lastImage = img;
+    feedCanvas.width  = img.naturalWidth  || 640;
+    feedCanvas.height = img.naturalHeight || 480;
+
+    // Nearest-centroid tracking: re-link selected across frames
+    if (selectedCenter && selectedClass && detections.length) {
+      let bestIdx = -1, bestDist = Infinity;
+      detections.forEach((d, i) => {
+        if (d.class !== selectedClass) return;
+        const c = bboxCenter(d.bbox);
+        const dist = Math.hypot(c.x - selectedCenter.x, c.y - selectedCenter.y);
+        if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+      });
+      const thr = Math.max(feedCanvas.width, feedCanvas.height) * 0.25;
+      selectedIdx = bestDist < thr ? bestIdx : -1;
+      if (selectedIdx >= 0) selectedCenter = bboxCenter(detections[selectedIdx].bbox);
+      updateSelPanel();
+    }
+
+    latestDetections = detections || [];
+    redraw();
+  };
+  img.src = 'data:image/jpeg;base64,' + base64;
+}
+
+function redraw() {
+  if (!lastImage) return;
+  fCtx.drawImage(lastImage, 0, 0);
+  drawBoxes();
+}
+
+function drawBoxes() {
+  if (!latestDetections.length) return;
+  fCtx.save();
+  latestDetections.forEach((d, i) => {
+    if (!d.bbox) return;
+    const [x1, y1, x2, y2] = d.bbox;
+    const w = x2 - x1, h = y2 - y1;
+    const isSel = i === selectedIdx;
+    const isHov = i === hoveredIdx && !isSel;
+
+    if (isSel) {
+      fCtx.strokeStyle = '#ffb300';
+      fCtx.lineWidth   = 3;
+      drawCorners(x1, y1, x2, y2, Math.min(w, h) * 0.25);
+      fCtx.font = 'bold 12px "Segoe UI",sans-serif';
+      const label = `${d.class}  ${Math.round((d.confidence || 0) * 100)}%`;
+      const tw = fCtx.measureText(label).width + 12;
+      fCtx.fillStyle = '#ffb300';
+      fCtx.fillRect(x1, y1 - 22, tw, 20);
+      fCtx.fillStyle = '#000';
+      fCtx.fillText(label, x1 + 6, y1 - 6);
+    } else {
+      const color = getColor(d.class);
+      fCtx.globalAlpha = isHov ? 1.0 : 0.72;
+      fCtx.strokeStyle = isHov ? '#ffffff' : color;
+      fCtx.lineWidth   = isHov ? 2 : 1.5;
+      fCtx.strokeRect(x1, y1, w, h);
+      fCtx.globalAlpha = 1;
+      fCtx.font = '11px "Segoe UI",sans-serif';
+      const lw = fCtx.measureText(d.class).width + 8;
+      fCtx.fillStyle = color + 'cc';
+      fCtx.fillRect(x1, y1 - 17, lw, 15);
+      fCtx.fillStyle = '#fff';
+      fCtx.fillText(d.class, x1 + 4, y1 - 5);
+    }
+  });
+  fCtx.restore();
+}
+
+function drawCorners(x1, y1, x2, y2, s) {
+  fCtx.beginPath();
+  fCtx.moveTo(x1, y1 + s); fCtx.lineTo(x1, y1); fCtx.lineTo(x1 + s, y1);
+  fCtx.moveTo(x2 - s, y1); fCtx.lineTo(x2, y1); fCtx.lineTo(x2, y1 + s);
+  fCtx.moveTo(x2, y2 - s); fCtx.lineTo(x2, y2); fCtx.lineTo(x2 - s, y2);
+  fCtx.moveTo(x1 + s, y2); fCtx.lineTo(x1, y2); fCtx.lineTo(x1, y2 - s);
+  fCtx.stroke();
+}
+
+// ── Sidebar helpers ────────────────────────────────────────────────────────
+function updateSelPanel() {
+  if (selectedIdx < 0 || selectedIdx >= latestDetections.length) {
+    selCard.classList.remove('active');
+    selEmpty.style.display = ''; selContent.style.display = 'none'; return;
+  }
+  const d = latestDetections[selectedIdx];
+  const [x1, y1, x2, y2] = d.bbox;
+  selCard.classList.add('active');
+  selEmpty.style.display = 'none'; selContent.style.display = '';
+  selClass.textContent = d.class;
+  selConf.textContent  = Math.round((d.confidence || 0) * 100) + '%';
+  selPos.textContent   = `${Math.round(x1)}, ${Math.round(y1)}`;
+  selSize.textContent  = `${Math.round(x2 - x1)} × ${Math.round(y2 - y1)}`;
+}
+
+function showFeed() {
+  feedCanvas.classList.add('active');
+  feedMsg.classList.add('hidden');
+  fpsBadge.classList.add('show');
+  hintBadge.classList.remove('hidden');
+}
+function hideFeed() {
+  feedCanvas.classList.remove('active');
+  feedMsg.classList.remove('hidden');
+  fpsBadge.classList.remove('show');
+  lastImage = null; latestDetections = [];
+}
+function setStatus(label, live = false) {
+  statusLabel.textContent = label;
+  statusDot.className = 'status-dot' + (live ? ' live' : '');
+}
+function updateStats({ counts = {}, fps }) {
+  frameCount++;
+  if (fps != null) fpsBadge.textContent = fps + ' FPS';
+  for (const [cls, n] of Object.entries(counts)) allCounts[cls] = (allCounts[cls] || 0) + n;
+  renderCountList(counts);
+}
+function renderCountList(c) {
+  if (!Object.keys(c).length) return;
+  const mx = Math.max(...Object.values(c), 1);
+  countList.innerHTML = Object.entries(c).sort((a,b) => b[1]-a[1]).map(([cls,n]) => {
+    const col = getColor(cls), pct = (n/mx*100).toFixed(0);
+    return `<div class="count-item">
+      <div class="count-dot" style="background:${col}"></div>
+      <span style="flex:0 0 72px;font-size:.82rem">${cls}</span>
+      <div class="count-bar-wrap"><div class="count-bar" style="width:${pct}%;background:${col}"></div></div>
+      <span class="count-num">${n}</span>
+    </div>`;
+  }).join('');
+}
+function logDetections(dets) {
+  if (!dets || !dets.length) return;
+  const s = {}; dets.forEach(d => s[d.class] = (s[d.class]||0)+1);
+  const el = document.createElement('div'); el.className = 'det-entry';
+  el.innerHTML = `<span style="font-weight:700">${Object.entries(s).map(([c,n]) => `${n}× ${c}`).join(', ')}</span>`;
+  detLog.prepend(el);
+  while (detLog.children.length > 40) detLog.removeChild(detLog.lastChild);
+}
+function resetStats() {
+  frameCount = 0; allCounts = {}; colorIdx = 0; classColorMap = {};
+  clearSel();
+  countList.innerHTML = '<div style="font-size:.8rem;color:var(--muted)">No detections yet</div>';
+  detLog.innerHTML    = '<div style="font-size:.8rem;color:var(--muted)">Waiting for detections...</div>';
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────
+function openWs(path, onMsg, onClose) {
+  const s = new WebSocket(WS_BASE + path);
+  s.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.error) { alert('Stream error: ' + d.error); stopAll(); return; }
+    onMsg(d);
+  };
+  s.onclose = () => { onClose && onClose(); };
+  s.onerror = () => { setStatus('Connection error'); stopAll(); };
+  return s;
+}
+
+// ── Stop all ───────────────────────────────────────────────────────────────
+function stopAll() {
+  capturing = false;
+  if (ws) { ws.close(); ws = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  hideFeed(); setStatus('Idle');
+  document.getElementById('btnStopWebcam').disabled = true;
+  document.getElementById('btnWebcam').disabled     = false;
+  document.getElementById('btnStopVideo').disabled  = true;
+  document.getElementById('btnVideo').disabled      = !currentFile;
+  document.getElementById('btnStopRtsp').disabled   = true;
+  document.getElementById('btnRtsp').disabled       = false;
+}
+
+// ── Webcam ─────────────────────────────────────────────────────────────────
+const btnWebcam     = document.getElementById('btnWebcam');
+const btnStopWebcam = document.getElementById('btnStopWebcam');
+btnWebcam.addEventListener('click', async () => {
+  try { mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 } }); }
+  catch { alert('Cannot access webcam. Check browser permissions.'); return; }
+  resetStats(); showFeed();
+  btnWebcam.disabled = true; btnStopWebcam.disabled = false;
+  setStatus('Webcam live', true);
+  const cv = document.createElement('canvas'), cx = cv.getContext('2d');
+  const vid = document.createElement('video'); vid.srcObject = mediaStream; vid.play();
+  ws = openWs('/ws/webcam', data => {
+    renderFrame(data.image_base64, data.detections || []);
+    updateStats(data); logDetections(data.detections);
+  }, () => stopAll());
+  capturing = true;
+  const loop = () => {
+    if (!capturing || !ws || ws.readyState !== WebSocket.OPEN) return;
+    cv.width = vid.videoWidth||640; cv.height = vid.videoHeight||480;
+    cx.drawImage(vid, 0, 0);
+    cv.toBlob(blob => blob.arrayBuffer().then(buf => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
+    }), 'image/jpeg', 0.82);
+    setTimeout(loop, 1000/15);
+  };
+  vid.addEventListener('loadeddata', loop);
+});
+btnStopWebcam.addEventListener('click', stopAll);
+
+// ── Video file ─────────────────────────────────────────────────────────────
+const videoDrop    = document.getElementById('videoDrop');
+const videoInput   = document.getElementById('videoInput');
+const btnVideo     = document.getElementById('btnVideo');
+const btnStopVideo = document.getElementById('btnStopVideo');
+videoDrop.addEventListener('click', () => videoInput.click());
+videoDrop.addEventListener('dragover', e => { e.preventDefault(); videoDrop.classList.add('drag-over'); });
+videoDrop.addEventListener('dragleave', () => videoDrop.classList.remove('drag-over'));
+videoDrop.addEventListener('drop', e => { e.preventDefault(); videoDrop.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleVideoFile(e.dataTransfer.files[0]); });
+videoInput.addEventListener('change', () => { if (videoInput.files[0]) handleVideoFile(videoInput.files[0]); });
+function handleVideoFile(f) { currentFile = f; videoDrop.querySelector('div:nth-child(2)').textContent = '📁 ' + f.name; btnVideo.disabled = false; }
+btnVideo.addEventListener('click', async () => {
+  if (!currentFile) return;
+  resetStats(); showFeed(); btnVideo.disabled = true; btnStopVideo.disabled = false;
+  setStatus('Processing video…', true);
+  const conf = confSlider.value / 100, form = new FormData(); form.append('file', currentFile);
+  const controller = new AbortController(); ws = { close: () => controller.abort() };
+  try {
+    const resp = await fetch(`${API}/api/detect/video?conf=${conf}`, { method:'POST', body:form, signal:controller.signal });
+    if (!resp.ok) throw new Error(await resp.text());
+    const reader = resp.body.getReader(); let buf = new Uint8Array();
+    const readLoop = async () => {
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        const tmp = new Uint8Array(buf.length + value.length); tmp.set(buf); tmp.set(value, buf.length); buf = tmp;
+        while (true) {
+          const s = findSeq(buf,[0xFF,0xD8]), e2 = findSeq(buf,[0xFF,0xD9]);
+          if (s===-1||e2===-1||e2<s) break;
+          const jpeg = buf.slice(s, e2+2); buf = buf.slice(e2+2);
+          renderFrame(btoa(String.fromCharCode(...jpeg)), []); frameCount++;
+        }
+      }
+      stopAll(); setStatus('Video complete');
+    };
+    readLoop();
+  } catch(e) { if (e.name !== 'AbortError') alert('Video error: ' + e.message); stopAll(); }
+});
+function findSeq(buf, seq) {
+  outer: for (let i=0; i<=buf.length-seq.length; i++) {
+    for (let j=0; j<seq.length; j++) { if (buf[i+j]!==seq[j]) continue outer; } return i;
+  } return -1;
+}
+btnStopVideo.addEventListener('click', stopAll);
+
+// ── Image ──────────────────────────────────────────────────────────────────
+const imageDrop  = document.getElementById('imageDrop');
+const imageInput = document.getElementById('imageInput');
+const btnImage   = document.getElementById('btnImage');
+imageDrop.addEventListener('click', () => imageInput.click());
+imageDrop.addEventListener('dragover', e => { e.preventDefault(); imageDrop.classList.add('drag-over'); });
+imageDrop.addEventListener('dragleave', () => imageDrop.classList.remove('drag-over'));
+imageDrop.addEventListener('drop', e => { e.preventDefault(); imageDrop.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleImageFile(e.dataTransfer.files[0]); });
+imageInput.addEventListener('change', () => { if (imageInput.files[0]) handleImageFile(imageInput.files[0]); });
+function handleImageFile(f) { currentFile = f; imageDrop.querySelector('div:nth-child(2)').textContent = '🖼 ' + f.name; btnImage.disabled = false; }
+btnImage.addEventListener('click', async () => {
+  if (!currentFile) return; resetStats(); setStatus('Running inference…', true); btnImage.disabled = true;
+  const conf = confSlider.value / 100, form = new FormData(); form.append('file', currentFile);
+  try {
+    const resp = await fetch(`${API}/api/detect/image?conf=${conf}`, { method:'POST', body:form });
+    const data = await resp.json();
+    if (data.detail) throw new Error(data.detail);
+    showFeed();
+    renderFrame(data.image_base64, data.detections || []);
+    updateStats({ counts: data.counts, total: data.total });
+    logDetections(data.detections);
+    setStatus('Detection complete');
+    fpsBadge.textContent = data.inference_ms + ' ms';
+  } catch(e) { alert('Error: ' + e.message); setStatus('Error'); }
+  finally { btnImage.disabled = false; statusDot.className = 'status-dot'; }
+});
+
+// ── RTSP ───────────────────────────────────────────────────────────────────
+const rtspUrlEl   = document.getElementById('rtspUrl');
+const btnRtsp     = document.getElementById('btnRtsp');
+const btnStopRtsp = document.getElementById('btnStopRtsp');
+btnRtsp.addEventListener('click', () => {
+  const url = rtspUrlEl.value.trim(); if (!url) { alert('Enter an RTSP URL first.'); return; }
+  resetStats(); showFeed(); btnRtsp.disabled = true; btnStopRtsp.disabled = false;
+  setStatus('Connecting to RTSP…', true);
+  ws = openWs('/ws/rtsp', data => {
+    renderFrame(data.image_base64, data.detections || []);
+    updateStats(data); logDetections(data.detections); setStatus('RTSP live', true);
+  }, () => stopAll());
+  ws.addEventListener('open', () => ws.send(url));
+});
+btnStopRtsp.addEventListener('click', stopAll);
+</script>
+</body>
+</html>
